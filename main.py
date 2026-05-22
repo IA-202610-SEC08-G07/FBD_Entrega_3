@@ -51,7 +51,7 @@ def crear_resena(datos: dict):
     if len(datos.get("texto", "")) < 10:
         raise HTTPException(400, "El texto debe tener al menos 10 caracteres.")
 
-    datos["fecha_creacion"]     = datetime.utcnow()
+    datos["fecha_creacion"]     = datetime.now(datetime.timezone.utc)
     datos["fecha_edicion"]      = None
     datos["estado"]             = "publicada"
     datos["destacada"]          = False
@@ -86,7 +86,7 @@ def editar_resena(resena_id: str, datos: dict):
         {"$set": {
             "calificacion":  datos["calificacion"],
             "texto":         datos["texto"],
-            "fecha_edicion": datetime.utcnow()
+            "fecha_edicion": datetime.now(datetime.timezone.utc)
         }},
         return_document=True
     )
@@ -157,7 +157,7 @@ def votar_resena(resena_id: str, datos: dict):
         db["votos_utilidad"].insert_one({
             "resena_id":  ObjectId(resena_id),
             "cliente_id": datos["cliente_id"],
-            "fecha_voto": datetime.utcnow()
+            "fecha_voto": datetime.now(datetime.timezone.utc)
         })
     except DuplicateKeyError:
         raise HTTPException(409, "Ya votaste por esta reseña.")
@@ -201,7 +201,7 @@ def responder_resena(resena_id: str, datos: dict):
         "admin_id":    datos["admin_id"],
         "nombre_admin": datos["nombre_admin"],
         "texto":        datos["texto"],
-        "fecha":        datetime.utcnow()
+        "fecha":        datetime.now(datetime.timezone.utc)
     }
     result = db["resenas"].find_one_and_update(
         {"_id": ObjectId(resena_id)},
