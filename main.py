@@ -16,7 +16,7 @@ app.add_middleware(
 )
 
 client = MongoClient(os.environ["MONGO_URI"])
-db = client["dann_alpes_resenas"]
+db = client["ISIS2304I16202610"]
 
 # ── helper: convierte ObjectId a string para poder retornar el doc ──
 def ser(doc):
@@ -36,13 +36,10 @@ def ser(doc):
 def inicio():
     return {"estado": "API Dann-Alpes funcionando correctamente"}
 
-
-# ================================================================
 # RF1 – Crear reseña
 # POST /resenas
 # Body: { hotel_id, ciudad_hotel, cliente_id, nombre_cliente,
 #         reserva_id, calificacion (1-5), texto }
-# ================================================================
 @app.post("/resenas")
 def crear_resena(datos: dict):
     # Validaciones básicas
@@ -65,11 +62,9 @@ def crear_resena(datos: dict):
         raise HTTPException(409, "Esta reserva ya tiene una reseña.")
 
 
-# ================================================================
 # RF2 – Editar reseña (solo el cliente dueño)
 # PUT /resenas/{resena_id}
 # Body: { cliente_id, calificacion, texto }
-# ================================================================
 @app.put("/resenas/{resena_id}")
 def editar_resena(resena_id: str, datos: dict):
     if not (1 <= datos.get("calificacion", 0) <= 5):
@@ -94,11 +89,9 @@ def editar_resena(resena_id: str, datos: dict):
         raise HTTPException(404, "Reseña no encontrada o no autorizado.")
     return {"mensaje": "Reseña actualizada", "resena": ser(result)}
 
-
-# ================================================================
 # RF3 – Eliminar reseña (cliente)
 # DELETE /resenas/{resena_id}/cliente?cliente_id=123
-# ================================================================
+
 @app.delete("/resenas/{resena_id}/cliente")
 def eliminar_resena_cliente(resena_id: str, cliente_id: int):
     result = db["resenas"].find_one_and_update(
@@ -114,10 +107,10 @@ def eliminar_resena_cliente(resena_id: str, cliente_id: int):
     return {"mensaje": "Reseña eliminada"}
 
 
-# ================================================================
+
 # RF4 – Consultar reseñas de un hotel (público, paginado)
 # GET /hoteles/{hotel_id}/resenas?orden=fecha&pagina=1&por_pagina=10
-# ================================================================
+
 @app.get("/hoteles/{hotel_id}/resenas")
 def get_resenas_hotel(
     hotel_id:   int,
@@ -146,11 +139,10 @@ def get_resenas_hotel(
     return {"total": total, "pagina": pagina, "resenas": [ser(d) for d in docs]}
 
 
-# ================================================================
 # RF5 – Marcar reseña como útil
 # POST /resenas/{resena_id}/voto
 # Body: { cliente_id }
-# ================================================================
+
 @app.post("/resenas/{resena_id}/voto")
 def votar_resena(resena_id: str, datos: dict):
     try:
@@ -166,11 +158,9 @@ def votar_resena(resena_id: str, datos: dict):
     db["resenas"].update_one({"_id": ObjectId(resena_id)}, {"$set": {"votos_utiles_count": count}})
     return {"mensaje": "Voto registrado", "votos_utiles_count": count}
 
-
-# ================================================================
 # RF6 – Historial de reseñas del cliente autenticado
 # GET /clientes/{cliente_id}/resenas?orden=fecha
-# ================================================================
+
 @app.get("/clientes/{cliente_id}/resenas")
 def get_historial_cliente(
     cliente_id: int,
@@ -187,11 +177,10 @@ def get_historial_cliente(
     return {"resenas": [ser(d) for d in docs]}
 
 
-# ================================================================
 # RF7 – Responder reseña (admin)
 # PUT /resenas/{resena_id}/respuesta
 # Body: { admin_id, nombre_admin, texto }
-# ================================================================
+
 @app.put("/resenas/{resena_id}/respuesta")
 def responder_resena(resena_id: str, datos: dict):
     if len(datos.get("texto", "")) < 5:
@@ -213,10 +202,9 @@ def responder_resena(resena_id: str, datos: dict):
     return {"mensaje": "Respuesta guardada"}
 
 
-# ================================================================
 # RF8 – Eliminar reseña (admin modera contenido)
 # DELETE /resenas/{resena_id}/admin
-# ================================================================
+
 @app.delete("/resenas/{resena_id}/admin")
 def eliminar_resena_admin(resena_id: str):
     result = db["resenas"].find_one_and_update(
@@ -228,11 +216,10 @@ def eliminar_resena_admin(resena_id: str):
     return {"mensaje": "Reseña eliminada por administrador"}
 
 
-# ================================================================
 # RF9 – Destacar reseña (admin — solo 1 por hotel a la vez)
 # PUT /resenas/{resena_id}/destacar
 # Body: { hotel_id }
-# ================================================================
+
 @app.put("/resenas/{resena_id}/destacar")
 def destacar_resena(resena_id: str, datos: dict):
     # Quitar destacada anterior del mismo hotel
@@ -250,10 +237,9 @@ def destacar_resena(resena_id: str, datos: dict):
     return {"mensaje": "Reseña destacada"}
 
 
-# ================================================================
 # RFC1 – Top 10 hoteles por calificación promedio en un período
 # GET /analytics/top-hoteles?fecha_inicio=2025-01-01&fecha_fin=2025-12-31
-# ================================================================
+
 @app.get("/analytics/top-hoteles")
 def rfc1_top_hoteles(fecha_inicio: str, fecha_fin: str):
     pipeline = [
@@ -281,10 +267,9 @@ def rfc1_top_hoteles(fecha_inicio: str, fecha_fin: str):
     return {"resultado": list(db["resenas"].aggregate(pipeline))}
 
 
-# ================================================================
 # RFC2 – Evolución de reputación de un hotel mes a mes
 # GET /analytics/evolucion/{hotel_id}?anio=2025
-# ================================================================
+
 @app.get("/analytics/evolucion/{hotel_id}")
 def rfc2_evolucion(hotel_id: int, anio: int = Query(2025)):
     pipeline = [
@@ -314,11 +299,8 @@ def rfc2_evolucion(hotel_id: int, anio: int = Query(2025)):
     ]
     return {"hotel_id": hotel_id, "anio": anio, "resultado": list(db["resenas"].aggregate(pipeline))}
 
-
-# ================================================================
 # RFC3 – Perfil comparativo de hoteles por ciudad
 # GET /analytics/ciudad/{ciudad}
-# ================================================================
 @app.get("/analytics/ciudad/{ciudad}")
 def rfc3_ciudad(ciudad: str):
     pipeline = [
