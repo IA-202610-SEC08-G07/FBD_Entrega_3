@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import DuplicateKeyError
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 import os
 
@@ -48,7 +48,14 @@ def crear_resena(datos: dict):
     if len(datos.get("texto", "")) < 10:
         raise HTTPException(400, "El texto debe tener al menos 10 caracteres.")
 
-    datos["fecha_creacion"]     = datetime.now(datetime.timezone.utc)
+    try:
+        datos["hotel_id"]   = int(datos["hotel_id"])
+        datos["cliente_id"] = int(datos["cliente_id"])
+        datos["reserva_id"] = int(datos["reserva_id"])
+    except Exception:
+        raise HTTPException(400, "hotel_id, cliente_id y reserva_id deben ser enteros válidos.")
+
+    datos["fecha_creacion"]     = datetime.now(timezone.utc)
     datos["fecha_edicion"]      = None
     datos["estado"]             = "publicada"
     datos["destacada"]          = False
@@ -81,7 +88,7 @@ def editar_resena(resena_id: str, datos: dict):
         {"$set": {
             "calificacion":  datos["calificacion"],
             "texto":         datos["texto"],
-            "fecha_edicion": datetime.now(datetime.timezone.utc)
+            "fecha_edicion": datetime.now(timezone.utc)
         }},
         return_document=True
     )
@@ -149,7 +156,7 @@ def votar_resena(resena_id: str, datos: dict):
         db["votos_utilidad"].insert_one({
             "resena_id":  ObjectId(resena_id),
             "cliente_id": datos["cliente_id"],
-            "fecha_voto": datetime.now(datetime.timezone.utc)
+            "fecha_voto": datetime.now(timezone.utc)
         })
     except DuplicateKeyError:
         raise HTTPException(409, "Ya votaste por esta reseña.")
@@ -190,7 +197,7 @@ def responder_resena(resena_id: str, datos: dict):
         "admin_id":    datos["admin_id"],
         "nombre_admin": datos["nombre_admin"],
         "texto":        datos["texto"],
-        "fecha":        datetime.now(datetime.timezone.utc)
+        "fecha":        datetime.now(timezone.utc)
     }
     result = db["resenas"].find_one_and_update(
         {"_id": ObjectId(resena_id)},
