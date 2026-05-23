@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import DuplicateKeyError
-from datetime import datetime, timezone
+from datetime import datetime
 from bson import ObjectId
 import os
 
@@ -18,7 +18,7 @@ app.add_middleware(
 client = MongoClient(os.environ["MONGO_URI"])
 db = client["ISIS2304I16202610"]
 
-# ── helper: convierte ObjectId a string para poder retornar el doc ──
+# ── helper: convierte ObjectId y datetime a string para poder retornar el doc ──
 def ser(doc):
     if doc is None:
         return None
@@ -38,24 +38,22 @@ def inicio():
 
 # RF1 – Crear reseña
 # POST /resenas
-# Body: { hotel_id, ciudad_hotel, cliente_id, nombre_cliente,
-#         reserva_id, calificacion (1-5), texto }
+# Body: { hotel_id (str), ciudad_hotel, cliente_id (str),
+#         nombre_cliente, reserva_id (str), calificacion, texto }
 @app.post("/resenas")
 def crear_resena(datos: dict):
-    # Validaciones básicas
-    if not (1 <= datos.get("calificacion", 0) <= 5):
+    if not (1 <= int(datos.get("calificacion", 0)) <= 5):
         raise HTTPException(400, "La calificación debe estar entre 1 y 5.")
     if len(datos.get("texto", "")) < 10:
         raise HTTPException(400, "El texto debe tener al menos 10 caracteres.")
 
-    try:
-        datos["hotel_id"]   = int(datos["hotel_id"])
-        datos["cliente_id"] = int(datos["cliente_id"])
-        datos["reserva_id"] = int(datos["reserva_id"])
-    except Exception:
-        raise HTTPException(400, "hotel_id, cliente_id y reserva_id deben ser enteros válidos.")
+    # Asegurar que los IDs lleguen como string
+    datos["hotel_id"]   = str(datos["hotel_id"])
+    datos["cliente_id"] = str(datos["cliente_id"])
+    datos["reserva_id"] = str(datos["reserva_id"])
 
-    datos["fecha_creacion"]     = datetime.now(timezone.utc)
+    datos["calificacion"]       = int(datos["calificacion"])
+    datos["fecha_creacion"]     = datetime.utcnow()
     datos["fecha_edicion"]      = None
     datos["estado"]             = "publicada"
     datos["destacada"]          = False
@@ -71,24 +69,25 @@ def crear_resena(datos: dict):
 
 # RF2 – Editar reseña (solo el cliente dueño)
 # PUT /resenas/{resena_id}
-# Body: { cliente_id, calificacion, texto }
+# Body: { cliente_id (str), calificacion, texto }
+
 @app.put("/resenas/{resena_id}")
 def editar_resena(resena_id: str, datos: dict):
-    if not (1 <= datos.get("calificacion", 0) <= 5):
+    if not (1 <= int(datos.get("calificacion", 0)) <= 5):
         raise HTTPException(400, "La calificación debe estar entre 1 y 5.")
     if len(datos.get("texto", "")) < 10:
         raise HTTPException(400, "El texto debe tener al menos 10 caracteres.")
 
     result = db["resenas"].find_one_and_update(
         {
-            "_id":       ObjectId(resena_id),
-            "cliente_id": datos["cliente_id"],
-            "estado":    "publicada"
+            "_id":        ObjectId(resena_id),
+            "cliente_id": str(datos["cliente_id"]),
+            "estado":     "publicada"
         },
         {"$set": {
-            "calificacion":  datos["calificacion"],
+            "calificacion":  int(datos["calificacion"]),
             "texto":         datos["texto"],
-            "fecha_edicion": datetime.now(timezone.utc)
+            "fecha_edicion": datetime.utcnow()
         }},
         return_document=True
     )
@@ -97,15 +96,15 @@ def editar_resena(resena_id: str, datos: dict):
     return {"mensaje": "Reseña actualizada", "resena": ser(result)}
 
 # RF3 – Eliminar reseña (cliente)
-# DELETE /resenas/{resena_id}/cliente?cliente_id=123
+# DELETE /resenas/{resena_id}/cliente?cliente_id=CLI000123
 
 @app.delete("/resenas/{resena_id}/cliente")
-def eliminar_resena_cliente(resena_id: str, cliente_id: int):
+def eliminar_resena_cliente(resena_id: str, cliente_id: str):
     result = db["resenas"].find_one_and_update(
         {
-            "_id":       ObjectId(resena_id),
+            "_id":        ObjectId(resena_id),
             "cliente_id": cliente_id,
-            "estado":    "publicada"
+            "estado":     "publicada"
         },
         {"$set": {"estado": "eliminada_cliente"}}
     )
@@ -113,15 +112,12 @@ def eliminar_resena_cliente(resena_id: str, cliente_id: int):
         raise HTTPException(404, "Reseña no encontrada.")
     return {"mensaje": "Reseña eliminada"}
 
-
-
 # RF4 – Consultar reseñas de un hotel (público, paginado)
 # GET /hoteles/{hotel_id}/resenas?orden=fecha&pagina=1&por_pagina=10
-
 @app.get("/hoteles/{hotel_id}/resenas")
 def get_resenas_hotel(
-    hotel_id:   int,
-    orden:      str = Query("fecha"),   # "fecha" o "votos"
+    hotel_id:   str,
+    orden:      str = Query("fecha"),
     pagina:     int = Query(1),
     por_pagina: int = Query(10)
 ):
@@ -148,15 +144,15 @@ def get_resenas_hotel(
 
 # RF5 – Marcar reseña como útil
 # POST /resenas/{resena_id}/voto
-# Body: { cliente_id }
+# Body: { cliente_id (str) }
 
 @app.post("/resenas/{resena_id}/voto")
 def votar_resena(resena_id: str, datos: dict):
     try:
         db["votos_utilidad"].insert_one({
             "resena_id":  ObjectId(resena_id),
-            "cliente_id": datos["cliente_id"],
-            "fecha_voto": datetime.now(timezone.utc)
+            "cliente_id": str(datos["cliente_id"]),
+            "fecha_voto": datetime.utcnow()
         })
     except DuplicateKeyError:
         raise HTTPException(409, "Ya votaste por esta reseña.")
@@ -170,8 +166,8 @@ def votar_resena(resena_id: str, datos: dict):
 
 @app.get("/clientes/{cliente_id}/resenas")
 def get_historial_cliente(
-    cliente_id: int,
-    orden: str = Query("fecha")   # "fecha" o "hotel"
+    cliente_id: str,
+    orden: str = Query("fecha")
 ):
     sort = [("hotel_id", ASCENDING)] if orden == "hotel" else [("fecha_creacion", DESCENDING)]
     docs = list(
@@ -186,7 +182,7 @@ def get_historial_cliente(
 
 # RF7 – Responder reseña (admin)
 # PUT /resenas/{resena_id}/respuesta
-# Body: { admin_id, nombre_admin, texto }
+# Body: { admin_id (str), nombre_admin, texto }
 
 @app.put("/resenas/{resena_id}/respuesta")
 def responder_resena(resena_id: str, datos: dict):
@@ -194,10 +190,10 @@ def responder_resena(resena_id: str, datos: dict):
         raise HTTPException(400, "La respuesta debe tener al menos 5 caracteres.")
 
     respuesta = {
-        "admin_id":    datos["admin_id"],
+        "admin_id":    str(datos["admin_id"]),
         "nombre_admin": datos["nombre_admin"],
         "texto":        datos["texto"],
-        "fecha":        datetime.now(timezone.utc)
+        "fecha":        datetime.utcnow()
     }
     result = db["resenas"].find_one_and_update(
         {"_id": ObjectId(resena_id)},
@@ -208,8 +204,7 @@ def responder_resena(resena_id: str, datos: dict):
         raise HTTPException(404, "Reseña no encontrada.")
     return {"mensaje": "Respuesta guardada"}
 
-
-# RF8 – Eliminar reseña (admin modera contenido)
+# RF8 – Eliminar reseña (admin)
 # DELETE /resenas/{resena_id}/admin
 
 @app.delete("/resenas/{resena_id}/admin")
@@ -225,13 +220,12 @@ def eliminar_resena_admin(resena_id: str):
 
 # RF9 – Destacar reseña (admin — solo 1 por hotel a la vez)
 # PUT /resenas/{resena_id}/destacar
-# Body: { hotel_id }
+# Body: { hotel_id (str) }
 
 @app.put("/resenas/{resena_id}/destacar")
 def destacar_resena(resena_id: str, datos: dict):
-    # Quitar destacada anterior del mismo hotel
     db["resenas"].update_many(
-        {"hotel_id": datos["hotel_id"], "destacada": True},
+        {"hotel_id": str(datos["hotel_id"]), "destacada": True},
         {"$set": {"destacada": False}}
     )
     result = db["resenas"].find_one_and_update(
@@ -274,11 +268,12 @@ def rfc1_top_hoteles(fecha_inicio: str, fecha_fin: str):
     return {"resultado": list(db["resenas"].aggregate(pipeline))}
 
 
+# ================================================================
 # RFC2 – Evolución de reputación de un hotel mes a mes
 # GET /analytics/evolucion/{hotel_id}?anio=2025
-
+# ================================================================
 @app.get("/analytics/evolucion/{hotel_id}")
-def rfc2_evolucion(hotel_id: int, anio: int = Query(2025)):
+def rfc2_evolucion(hotel_id: str, anio: int = Query(2025)):
     pipeline = [
         {"$match": {
             "hotel_id": hotel_id,
@@ -306,8 +301,10 @@ def rfc2_evolucion(hotel_id: int, anio: int = Query(2025)):
     ]
     return {"hotel_id": hotel_id, "anio": anio, "resultado": list(db["resenas"].aggregate(pipeline))}
 
+
 # RFC3 – Perfil comparativo de hoteles por ciudad
 # GET /analytics/ciudad/{ciudad}
+
 @app.get("/analytics/ciudad/{ciudad}")
 def rfc3_ciudad(ciudad: str):
     pipeline = [
@@ -332,9 +329,9 @@ def rfc3_ciudad(ciudad: str):
             ],
             "resumen_ciudad": [
                 {"$group": {"_id": None,
-                            "promedio_ciudad":      {"$avg": "$calificacion_promedio"},
-                            "total_hoteles":         {"$sum": 1},
-                            "total_resenas_ciudad":  {"$sum": "$total_resenas"}}},
+                            "promedio_ciudad":     {"$avg": "$calificacion_promedio"},
+                            "total_hoteles":        {"$sum": 1},
+                            "total_resenas_ciudad": {"$sum": "$total_resenas"}}},
                 {"$project": {"_id": 0,
                               "promedio_ciudad":     {"$round": ["$promedio_ciudad", 2]},
                               "total_hoteles": 1, "total_resenas_ciudad": 1}}
