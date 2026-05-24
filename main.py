@@ -224,18 +224,31 @@ def eliminar_resena_admin(resena_id: str):
 
 @app.put("/resenas/{resena_id}/destacar")
 def destacar_resena(resena_id: str, datos: dict):
-    db["resenas"].update_many(
-        {"hotel_id": str(datos["hotel_id"]), "destacada": True},
-        {"$set": {"destacada": False}}
-    )
-    result = db["resenas"].find_one_and_update(
-        {"_id": ObjectId(resena_id)},
-        {"$set": {"destacada": True}},
-        return_document=True
-    )
-    if not result:
-        raise HTTPException(404, "Reseña no encontrada.")
-    return {"mensaje": "Reseña destacada"}
+    # 1. Buscar la reseña actual para saber su estado e identificar su hotel
+    resena_actual = db["resenas"].find_one({"_id": ObjectId(resena_id)})
+    if not resena_actual:
+        raise HTTPException(status_code=404, detail="Reseña no encontrada.")
+    nuevo_estado = not resena_actual.get("destacada", False)
+    hotel_id = str(datos["hotel_id"])
+
+    if nuevo_estado:
+        db["resenas"].update_many(
+            {"hotel_id": hotel_id, "destacada": True},
+            {"$set": {"destacada": False}}
+        )
+        db["resenas"].update_one(
+            {"_id": ObjectId(resena_id)},
+            {"$set": {"destacada": True}}
+        )
+        mensaje = "Reseña marcada como destacada y las demás fueron desactivadas."
+    else:
+        db["resenas"].update_one(
+            {"_id": ObjectId(resena_id)},
+            {"$set": {"destacada": False}}
+        )
+        mensaje = "Se ha quitado el destacado de la reseña."
+
+    return {"mensaje": mensaje, "destacada": nuevo_estado}
 
 
 # RFC1 – Top 10 hoteles por calificación promedio en un período
